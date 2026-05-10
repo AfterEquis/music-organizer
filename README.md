@@ -1,24 +1,55 @@
 # 🎵 AfterTune
 
-Descarga canciones desde YouTube y las organiza automáticamente por género en tu ordenador.
+> Descarga canciones desde YouTube y las organiza automáticamente por género.
 
-Funciona en Linux, Windows, Mac y Termux.
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
+![Termux](https://img.shields.io/badge/Termux-000000?style=for-the-badge&logo=android&logoColor=white)
+![yt-dlp](https://img.shields.io/badge/yt--dlp-FF0000?style=for-the-badge&logo=youtube&logoColor=white)
 
 ---
 
 ## ¿Qué hace?
 
-- Buscas una canción por nombre (o pegas la URL directamente).
-- Te muestra los mejores resultados filtrados, sin reacciones ni covers.
-- Descargas con Enter o eligiendo un número.
-- La canción se mueve sola a su carpeta de género.
+- 🔍 Buscas una canción por nombre — filtra automáticamente reacciones, covers y karaokes
+- ⭐ El mejor resultado aparece marcado; pulsa Enter para descargarlo o elige un número
+- 🎸 La canción se organiza sola en su carpeta de género (`Rock/`, `Pop/`, `Reggaeton/`...)
+- 🌐 Compatible con Linux, Windows, macOS y Termux
 
 ---
 
-## Requisitos
+## Demo
 
-- Python 3.8 o superior
-- Conexión a internet
+```
+╔══════════════════════════════════════╗
+║       🎵  AfterTune                  ║
+╚══════════════════════════════════════╝
+
+  Carpeta: ~/Music
+
+  [1] Buscar y descargar canción
+  [2] Organizar carpeta existente
+  [3] Configuración
+  [4] Salir
+
+  Opción: 1
+  Nombre o URL: bad bunny neverita
+
+  Búsqueda: bad bunny neverita
+  ───────────────────────────────────────────────────────
+
+★ [1] Bad Bunny - Neverita  · Bad Bunny · 3:12 · 320M views
+  [2] Bad Bunny - Neverita (Video Oficial) · BadBunnyVevo · 3:14
+  [3] Bad Bunny - Neverita (Letra/Lyrics) · LetrasHD · 3:12
+
+  Opción: ↵
+
+  🎵 Título   Bad Bunny - Neverita
+  👤 Artista  Bad Bunny
+  🎸 Género   Reggaeton
+  📁 Destino  ~/Music/Reggaeton/Bad Bunny - Neverita.mp3
+```
 
 ---
 
@@ -27,23 +58,16 @@ Funciona en Linux, Windows, Mac y Termux.
 ```bash
 git clone https://github.com/AfterEquis/music-organizer.git
 cd music-organizer
-python3 -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-### En fish (Linux)
-```bash
-source .venv/bin/activate.fish
-```
+### Activar entorno virtual (opcional pero recomendado)
 
-### En bash/zsh (Linux, Mac)
-```bash
-source .venv/bin/activate
-```
-
-### En Windows
-```cmd
-.venv\Scripts\activate
-```
+| Sistema | Comando |
+|---|---|
+| Linux / macOS / Termux (bash/zsh) | `source .venv/bin/activate` |
+| Linux / macOS (fish) | `source .venv/bin/activate.fish` |
+| Windows | `.venv\Scripts\activate` |
 
 ---
 
@@ -53,13 +77,38 @@ source .venv/bin/activate
 python main.py
 ```
 
+En la primera ejecución te pedirá tu carpeta de música y un email para MusicBrainz (necesario para la búsqueda de géneros).
+
+---
+
+## Cómo funciona por dentro
+
+```
+Nombre/URL
+    │
+    ▼
+Búsqueda YouTube (yt-dlp)
+    │  filtra reacciones, covers, karaokes
+    ▼
+Descarga en temp (webm → mp3/flac/m4a)
+    │
+    ▼
+Búsqueda de género
+    │  1. Tags ID3 del archivo
+    │  2. MusicBrainz API
+    │  3. Last.fm API (opcional)
+    │  4. Unknown/
+    ▼
+Mover a ~/Music/[Género]/canción.mp3
+```
+
 ---
 
 ## Problemas frecuentes
 
 **`ModuleNotFoundError: mutagen`**
 ```bash
-python3 -m pip install mutagen requests yt-dlp
+pip install mutagen requests yt-dlp
 ```
 
 **`pip: Unknown command` en fish**
@@ -67,11 +116,6 @@ python3 -m pip install mutagen requests yt-dlp
 python3 -m pip install -r requirements.txt
 ```
 
-**`source .venv/bin/activate` falla en fish**
-```bash
-source .venv/bin/activate.fish
-```
-
 ---
 
-## Por AfterEquis
+## Por [AfterEquis](https://github.com/AfterEquis)
