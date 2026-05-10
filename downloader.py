@@ -24,12 +24,28 @@ PENALTY_WORDS = [
 BONUS_WORDS = ["official", "oficial", "audio", "vevo"]
 
 
-def _score(entry: dict) -> float:
+def _query_words(query: str) -> set:
+    stopwords = {"de", "la", "el", "en", "y", "a", "the", "an", "of", "in"}
+    words = re.findall(r'\w+', query.lower())
+    return {w for w in words if len(w) > 1 and w not in stopwords}
+
+
+def _score(entry: dict, query: str = "") -> float:
     title   = (entry.get("title")   or "").lower()
     channel = (entry.get("channel") or "").lower()
     dur     = entry.get("duration")   or 0
     views   = entry.get("view_count") or 0
     score   = 0.0
+
+    # Coincidencia con la query (lo mas importante)
+    if query:
+        q_words     = _query_words(query)
+        title_words = set(re.findall(r'\w+', title))
+        if q_words:
+            overlap = len(q_words & title_words) / len(q_words)
+            score += overlap * 80
+            missing = q_words - title_words
+            score -= len(missing) * 15
 
     for word in PENALTY_WORDS:
         if word in title:
@@ -37,17 +53,17 @@ def _score(entry: dict) -> float:
 
     for word in BONUS_WORDS:
         if word in title or word in channel:
-            score += 20
+            score += 10
 
     if 90 <= dur <= 360:
-        score += 30
+        score += 20
     elif dur > 600:
         score -= 50
     elif dur > 360:
         score -= 10
 
     if views > 0:
-        score += math.log10(views) * 3
+        score += math.log10(views) * 1.5
 
     return score
 
@@ -59,7 +75,7 @@ def search_youtube(query: str, max_results: int = 5) -> list:
         entries = info.get("entries") or []
 
     entries = [e for e in entries if e.get("title") and e.get("url")]
-    scored  = sorted(entries, key=_score, reverse=True)
+    scored  = sorted(entries, key=lambda e: _score(e, query), reverse=True)
     return scored[:max_results]
 
 

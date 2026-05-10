@@ -1,0 +1,12 @@
+{
+  "music_dir": "/home/after/Music",
+  "email": "AfterEquis@proton.me",
+  "extensions": [
+    ".mp3",
+    ".flac",
+    ".ogg",
+    ".m4a",
+    ".wav"
+  ],
+  "unknown_folder": "Unknown"
+}
