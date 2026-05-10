@@ -1,48 +1,51 @@
-# 🎵 Music Organizer
+# 🎵 AfterTune
 
-Descargador y organizador de música por género. Descarga canciones o playlists de YouTube con yt-dlp y las categoriza automáticamente usando MusicBrainz.
+Descarga canciones desde YouTube y las organiza automáticamente por género en tu ordenador.
 
-## Características
+Funciona en Linux, Windows, Mac y Termux.
 
-- Descarga canciones o playlists completas desde YouTube
-- Organiza por género en el momento de la descarga (sin pasos extra)
-- Busca el género primero en los tags del archivo, luego en MusicBrainz
-- Parsea el nombre del archivo si no hay tags disponibles
-- Maneja duplicados automáticamente
-- Funciona en Linux, Windows y Termux (Android)
+---
+
+## ¿Qué hace?
+
+- Buscas una canción por nombre (o pegas la URL directamente).
+- Te muestra los mejores resultados filtrados, sin reacciones ni covers.
+- Descargas con Enter o eligiendo un número.
+- La canción se mueve sola a su carpeta de género.
+
+---
 
 ## Requisitos
 
-- Python 3.10+
-- ffmpeg instalado en el sistema
+- Python 3.8 o superior
+- Conexión a internet
 
-### Instalar ffmpeg
-
-**Linux / Termux:**
-```bash
-# Arch / CachyOS
-sudo pacman -S ffmpeg
-
-# Debian / Ubuntu
-sudo apt install ffmpeg
-
-# Termux
-pkg install ffmpeg
-```
-
-**Windows:**
-Descarga desde https://ffmpeg.org y añade al PATH, o usa `winget`:
-```powershell
-winget install ffmpeg
-```
+---
 
 ## Instalación
 
 ```bash
-git clone https://github.com/tuusuario/music-organizer
+git clone https://github.com/AfterEquis/music-organizer.git
 cd music-organizer
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
+
+### En fish (Linux)
+```bash
+source .venv/bin/activate.fish
+```
+
+### En bash/zsh (Linux, Mac)
+```bash
+source .venv/bin/activate
+```
+
+### En Windows
+```cmd
+.venv\Scripts\activate
+```
+
+---
 
 ## Uso
 
@@ -50,47 +53,25 @@ pip install -r requirements.txt
 python main.py
 ```
 
-En la primera ejecución te pedirá la carpeta de música y tu email (necesario para la API de MusicBrainz).
+---
 
-### Menú principal
+## Problemas frecuentes
 
-```
-[1] Descargar canción / playlist y organizar   ← descarga + categoriza al instante
-[2] Organizar carpeta existente                ← para música que ya tienes
-[3] Configuración
-[4] Salir
+**`ModuleNotFoundError: mutagen`**
+```bash
+python3 -m pip install mutagen requests yt-dlp
 ```
 
-### Estructura de carpetas resultante
-
-```
-~/Music/
-├── Reggaeton/
-│   ├── Bad_Bunny_-_Neverita.mp3
-│   └── BAD_BUNNY_x_JHAY_CORTEZ_-_DÁKITI.mp3
-├── Pop/
-│   └── Aitana_-_SENTIMIENTO_NATURAL.mp3
-├── Hip-Hop/
-│   └── ...
-└── Unknown/
-    └── canciones_sin_género.mp3
+**`pip: Unknown command` en fish**
+```bash
+python3 -m pip install -r requirements.txt
 ```
 
-## Configuración
-
-Se guarda en `config.json` (se crea automáticamente):
-
-```json
-{
-  "music_dir": "/home/user/Music",
-  "email": "tu@email.com",
-  "extensions": [".mp3", ".flac", ".ogg", ".m4a", ".wav"],
-  "unknown_folder": "Unknown"
-}
+**`source .venv/bin/activate` falla en fish**
+```bash
+source .venv/bin/activate.fish
 ```
 
-## Notas
+---
 
-- MusicBrainz permite 1 request/segundo. Para carpetas grandes el proceso puede tardar varios minutos.
-- Las canciones sin género conocido van a la carpeta `Unknown/`.
-- Si el nombre del archivo sigue el formato `Artista - Título`, la búsqueda en MusicBrainz es más precisa.
+## Por AfterEquis
