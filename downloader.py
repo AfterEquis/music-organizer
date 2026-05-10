@@ -1,17 +1,22 @@
 import re
 import math
+import time
+import shutil
 import tempfile
+import requests
 from pathlib import Path
 
 import yt_dlp
+from mutagen import File
 
-from organizer import organize_file
+from utils import safe_name, parse_filename
 
-# ── Colores ───────────────────────────────────────────────────────────────────
 YELLOW = "\033[93m"
-BOLD   = "\033[1m"
-DIM    = "\033[2m"
-RESET  = "\033[0m"
+GREEN = "\033[92m"
+CYAN = "\033[96m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
 
 PENALTY_WORDS = [
     "reaccion", "reaccionando", "reaction", "reacting",
@@ -20,51 +25,152 @@ PENALTY_WORDS = [
     "extended", "slowed", "reverb", "nightcore",
     "hora", "hours", "completo",
 ]
-
 BONUS_WORDS = ["official", "oficial", "audio", "vevo"]
+GENRE_RULES = [
+    ("bachata", "Bachata"),
+    ("salsa", "Salsa"),
+    ("cumbia", "Cumbia"),
+    ("merengue", "Merengue"),
+    ("trap", "Trap Latino"),
+    ("reggaeton", "Reggaeton"),
+    ("reggaetón", "Reggaeton"),
+    ("perreo", "Reggaeton"),
+    ("dembow", "Reggaeton"),
+    ("afrobeat", "Afrobeat"),
+    ("afrobeats", "Afrobeat"),
+    ("acoustic", "Acoustic"),
+    ("acustic", "Acoustic"),
+    ("piano", "Acoustic"),
+    ("live", "Live"),
+    ("concert", "Live"),
+    ("tour", "Live"),
+]
+CHANNEL_RULES = [
+    ("vevo", "Pop"),
+    ("badbunny", "Urbano Latino"),
+    ("anuel", "Urbano Latino"),
+    ("feid", "Urbano Latino"),
+    ("jhay", "Urbano Latino"),
+    ("quevedo", "Urbano Latino"),
+    ("aitana", "Pop"),
+    ("mora", "Urbano Latino"),
+    ("manuelturizo", "Urbano Latino"),
+]
+
+
+def _fmt_bytes(n) -> str:
+    if not n:
+        return "?"
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.2f} MB"
+    if n >= 1_000:
+        return f"{n/1_000:.1f} KB"
+    return f"{n} B"
+
+
+def _fmt_views(n) -> str:
+    if not n:
+        return "?"
+    if n >= 1_000_000_000:
+        return f"{n/1_000_000_000:.1f}B"
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.0f}K"
+    return str(n)
+
+
+def _fmt_duration(secs) -> str:
+    if not secs:
+        return "?"
+    m, s = divmod(int(secs), 60)
+    h, m = divmod(m, 60)
+    return f"{h}:{m:02}:{s:02}" if h else f"{m}:{s:02}"
+
+
+def _progress_bar(percent: float, width: int = 35) -> str:
+    filled = int(width * percent / 100)
+    return f"[{'█' * filled}{'░' * (width - filled)}] {int(percent)}%"
+
+
+BOX_W = 51
+
+
+def make_progress_hook(title: str, audio_format: str):
+    state = {"header_printed": False}
+
+    def hook(d):
+        if d["status"] == "downloading":
+            filesize = d.get("total_bytes") or d.get("total_bytes_estimate")
+            downloaded = d.get("downloaded_bytes", 0)
+            if not state["header_printed"]:
+                t = title if len(title) <= 44 else title[:41] + "..."
+                size_str = _fmt_bytes(filesize)
+                info = f"{size_str} · webm → {audio_format} · 192kbps"
+                print()
+                print(f" {CYAN}┌{'─'*BOX_W}┐{RESET}")
+                print(f" {CYAN}│{RESET} {BOLD}↓ {t}{RESET}{' '*(BOX_W-4-len(t))}{CYAN}│{RESET}")
+                print(f" {CYAN}│{RESET} {DIM}{info}{RESET}{' '*(BOX_W-2-len(info))}{CYAN}│{RESET}")
+                state["header_printed"] = True
+            percent = (downloaded / filesize * 100) if filesize else 0
+            bar = _progress_bar(percent)
+            print(f" {CYAN}│{RESET} {YELLOW}{bar}{RESET}{' '*(BOX_W-2-len(bar))}{CYAN}│{RESET}", end="\r")
+        elif d["status"] == "finished":
+            bar = _progress_bar(100)
+            print(f" {CYAN}│{RESET} {GREEN}{bar}{RESET}{' '*(BOX_W-2-len(bar))}{CYAN}│{RESET}")
+            print(f" {CYAN}└{'─'*BOX_W}┘{RESET}")
+
+    return hook
+
+
+def print_result(artist: str, extra: list, genre: str, dest: Path):
+    artista_str = artist or "?"
+    if extra:
+        artista_str += " · " + " · ".join(extra)
+    home = str(Path.home())
+    d = str(dest).replace(home, "~")
+    parts = d.rsplit("/", 1)
+    d_disp = f"{parts[0]}/{GREEN}{parts[1]}{RESET}" if len(parts) == 2 else d
+    print()
+    print(f" 🎵 {DIM}Título {RESET} {dest.stem}")
+    print(f" 👤 {DIM}Artista {RESET} {artista_str}")
+    print(f" 🎸 {DIM}Género {RESET} {YELLOW}{genre}{RESET}")
+    print(f" 📁 {DIM}Destino {RESET} {d_disp}")
+    print()
 
 
 def _query_words(query: str) -> set:
     stopwords = {"de", "la", "el", "en", "y", "a", "the", "an", "of", "in"}
-    words = re.findall(r'\w+', query.lower())
-    return {w for w in words if len(w) > 1 and w not in stopwords}
+    return {w for w in re.findall(r'\w+', query.lower()) if len(w) > 1 and w not in stopwords}
 
 
 def _score(entry: dict, query: str = "") -> float:
-    title   = (entry.get("title")   or "").lower()
+    title = (entry.get("title") or "").lower()
     channel = (entry.get("channel") or "").lower()
-    dur     = entry.get("duration")   or 0
-    views   = entry.get("view_count") or 0
-    score   = 0.0
-
-    # Coincidencia con la query (lo mas importante)
+    dur = entry.get("duration") or 0
+    views = entry.get("view_count") or 0
+    score = 0.0
     if query:
-        q_words     = _query_words(query)
+        q_words = _query_words(query)
         title_words = set(re.findall(r'\w+', title))
         if q_words:
             overlap = len(q_words & title_words) / len(q_words)
             score += overlap * 80
-            missing = q_words - title_words
-            score -= len(missing) * 15
-
-    for word in PENALTY_WORDS:
-        if word in title:
+            score -= len(q_words - title_words) * 15
+    for w in PENALTY_WORDS:
+        if w in title:
             score -= 30
-
-    for word in BONUS_WORDS:
-        if word in title or word in channel:
+    for w in BONUS_WORDS:
+        if w in title or w in channel:
             score += 10
-
     if 90 <= dur <= 360:
         score += 20
     elif dur > 600:
         score -= 50
     elif dur > 360:
         score -= 10
-
     if views > 0:
         score += math.log10(views) * 1.5
-
     return score
 
 
@@ -72,115 +178,217 @@ def search_youtube(query: str, max_results: int = 5) -> list:
     opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True}
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(f"ytsearch{max_results * 3}:{query}", download=False)
-        entries = info.get("entries") or []
-
-    entries = [e for e in entries if e.get("title") and e.get("url")]
-    scored  = sorted(entries, key=lambda e: _score(e, query), reverse=True)
-    return scored[:max_results]
-
-
-def _fmt_views(n) -> str:
-    if not n:   return "?"
-    if n >= 1_000_000_000: return f"{n/1_000_000_000:.1f}B"
-    if n >= 1_000_000:     return f"{n/1_000_000:.1f}M"
-    if n >= 1_000:         return f"{n/1_000:.0f}K"
-    return str(n)
-
-
-def _fmt_duration(secs) -> str:
-    if not secs: return "?"
-    m, s = divmod(int(secs), 60)
-    h, m = divmod(m, 60)
-    return f"{h}:{m:02}:{s:02}" if h else f"{m}:{s:02}"
+    entries = [e for e in (info.get("entries") or []) if e.get("title") and e.get("url")]
+    return sorted(entries, key=lambda e: _score(e, query), reverse=True)[:max_results]
 
 
 def show_results(query: str, results: list):
     print()
-    print(f"  Búsqueda: {BOLD}{query}{RESET}")
-    print(f"  {DIM}{'─' * 55}{RESET}")
+    print(f" Búsqueda: {BOLD}{query}{RESET}")
+    print(f" {DIM}{'─' * 55}{RESET}")
     print()
     for i, r in enumerate(results):
-        title   = r.get("title", "Sin título")
+        title = r.get("title", "Sin título")
         channel = r.get("channel") or r.get("uploader") or "?"
-        dur     = _fmt_duration(r.get("duration"))
-        views   = _fmt_views(r.get("view_count"))
-        marker  = "★" if i == 0 else " "
-        meta    = f"{DIM}· {channel} · {dur} · {views} views{RESET}"
+        dur = _fmt_duration(r.get("duration"))
+        views = _fmt_views(r.get("view_count"))
+        marker = "★" if i == 0 else " "
+        meta = f"{DIM}· {channel} · {dur} · {views} views{RESET}"
         if i == 0:
-            print(f"{YELLOW}{BOLD}  {marker} [{i+1}] {title}  {meta}{RESET}")
+            print(f"{YELLOW}{BOLD} {marker} [{i+1}] {title} {meta}{RESET}")
         else:
-            print(f"    [{i+1}] {title}  {meta}")
+            print(f" [{i+1}] {title} {meta}")
     print()
-    print(f"  {DIM}Selecciona un número o pulsa Enter para descargar el marcado [★]{RESET}")
+    print(f" {DIM}Selecciona un número o pulsa Enter para descargar el marcado [★]{RESET}")
     print()
 
 
 def pick_result(results: list):
-    raw = input("  Opción: ").strip()
+    raw = input(" Opción: ").strip()
     if raw == "":
         return results[0]
     if raw.isdigit():
         idx = int(raw) - 1
         if 0 <= idx < len(results):
             return results[idx]
-        print(f"  ⚠ Número fuera de rango (1-{len(results)})")
-        return None
-    print("  ⚠ Entrada no válida.")
+        print(f" ⚠ Número fuera de rango (1-{len(results)})")
+    else:
+        print(" ⚠ Entrada no válida.")
     return None
 
 
-def _make_ydl_opts(tmp_dir: str, audio_format: str = "mp3") -> dict:
-    return {
-        "format": "bestaudio/best",
-        "outtmpl": str(Path(tmp_dir) / "%(title)s.%(ext)s"),
-        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": audio_format, "preferredquality": "192"}],
-        "quiet": True,
-        "no_warnings": True,
-    }
+def _parse_yt_title(yt_title: str):
+    parts = re.split(r'\s*-\s+', yt_title, maxsplit=1)
+    artist = parts[0].strip() if len(parts) == 2 else None
+    title = parts[1].strip() if len(parts) == 2 else yt_title.strip()
+    feat = r'\s+(?:with|ft\.?|feat\.?)\s+(.+?)(?:\s*[\(\[]|$)'
+    m = re.search(feat, title, flags=re.IGNORECASE)
+    extra = []
+    if m:
+        extra = [a.strip() for a in re.split(r'\s*[,&]\s*', m.group(1))]
+        title = re.sub(feat, '', title, flags=re.IGNORECASE).strip()
+    title = re.sub(r'\s*[\(\[](?:audio|official|video|lyrics?|visualizer)[^\)\]]*[\)\]]', '', title, flags=re.IGNORECASE).strip()
+    return artist, title, extra
 
 
-def download_and_organize(url: str, dest_dir: Path, email: str,
-                          extensions: list, unknown_folder: str, audio_format: str = "mp3"):
+def _fetch_genre(query: str, headers: dict) -> str | None:
+    try:
+        r = requests.get(
+            "https://musicbrainz.org/ws/2/recording",
+            params={"query": query, "fmt": "json", "limit": 1},
+            headers=headers,
+            timeout=10,
+        )
+        r.raise_for_status()
+        recs = r.json().get("recordings", [])
+        if not recs:
+            return None
+        rels = recs[0].get("releases", [])
+        if not rels:
+            return None
+        rg_id = rels[0].get("release-group", {}).get("id")
+        if not rg_id:
+            return None
+        time.sleep(1)
+        rg = requests.get(
+            f"https://musicbrainz.org/ws/2/release-group/{rg_id}",
+            params={"inc": "tags", "fmt": "json"},
+            headers=headers,
+            timeout=10,
+        )
+        rg.raise_for_status()
+        tags = rg.json().get("tags", [])
+        if tags:
+            return safe_name(max(tags, key=lambda t: t.get("count", 0))["name"].title())
+    except Exception:
+        pass
+    return None
+
+
+def get_genre(yt_title: str, yt_channel: str, email: str) -> str | None:
+    headers = {"User-Agent": f"MusicOrganizer/1.0 ({email or 'user@example.com'})"}
+    artist, title, extra = _parse_yt_title(yt_title)
+    if not title:
+        return None
+    queries = []
+    if artist:
+        queries.append(f'recording:"{title}" AND artist:"{artist}"')
+    if extra:
+        queries.append(f'recording:"{title}" AND artist:"{extra[0]}"')
+    queries.append(f'recording:"{title}"')
+    if yt_channel and yt_channel != artist:
+        queries.append(f'recording:"{title}" AND artist:"{yt_channel}"')
+    for q in queries:
+        g = _fetch_genre(q, headers)
+        if g:
+            return g
+        time.sleep(1)
+    return None
+
+
+def _suggest_genre(yt_title: str, yt_channel: str) -> str:
+    t = (yt_title or "").lower()
+    c = (yt_channel or "").lower()
+    for k, v in GENRE_RULES:
+        if k in t:
+            return v
+    for k, v in CHANNEL_RULES:
+        if k in c:
+            return v
+    if any(x in t for x in ["audio oficial", "official audio", "vevo"]):
+        return "Pop"
+    if any(x in t for x in ["urban", "urbano", "latino"]):
+        return "Urbano Latino"
+    return "Unknown"
+
+
+def _ask_unknown_genre(track_title: str, yt_channel: str, unknown_folder: str) -> str:
+    suggestion = _suggest_genre(track_title, yt_channel)
+    raw = input(f" Género no detectado para '{track_title}'. Género sugerido [{suggestion}]: ").strip()
+    if not raw:
+        return suggestion if suggestion != "Unknown" else unknown_folder
+    return safe_name(raw)
+
+
+def download_and_organize(url: str, dest_dir: Path, email: str, extensions: list, unknown_folder: str, audio_format: str = "mp3", yt_title: str = "", yt_channel: str = ""):
+    if not yt_title:
+        try:
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
+                info = ydl.extract_info(url, download=False)
+                yt_title = info.get("title", "")
+                yt_channel = info.get("channel") or info.get("uploader", "")
+        except Exception:
+            pass
+
+    artist, title, extra = _parse_yt_title(yt_title)
+
     with tempfile.TemporaryDirectory() as tmp_dir:
-        opts = _make_ydl_opts(tmp_dir, audio_format)
+        opts = {
+            "format": "bestaudio/best",
+            "outtmpl": str(Path(tmp_dir) / "%(title)s.%(ext)s"),
+            "postprocessors": [
+                {"key": "FFmpegMetadata"},
+                {"key": "FFmpegExtractAudio", "preferredcodec": audio_format, "preferredquality": "192"},
+            ],
+            "quiet": True,
+            "no_warnings": True,
+            "noprogress": True,
+            "progress_hooks": [make_progress_hook(yt_title, audio_format)],
+        }
 
-        def on_finished(info: dict):
-            filepath = info.get("filepath") or info.get("filename")
-            if not filepath:
-                return
-            path = Path(filepath)
-            if path.suffix.lower() not in extensions or not path.exists():
-                return
-            print(f"\n↓ Descargado: {path.name}")
-            organize_file(path, dest_dir, email, unknown_folder)
-
-        opts["postprocessor_hooks"] = [
-            lambda info: on_finished(info) if info.get("status") == "finished" else None
-        ]
-        print(f"\n  Descargando...\n")
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([url])
         except yt_dlp.utils.DownloadError as e:
-            print(f"  ⚠ Error de descarga: {e}")
+            print(f"\n ⚠ Error de descarga: {e}")
+            return
+
+        archivos = [f for f in Path(tmp_dir).iterdir() if f.suffix.lower() in extensions]
+        if not archivos:
+            print("\n ⚠ No se encontró ningún archivo de audio tras la descarga.")
+            return
+
+        for archivo in archivos:
+            genre = get_genre(yt_title, yt_channel, email) or unknown_folder
+            if genre == unknown_folder:
+                genre = _ask_unknown_genre(yt_title or archivo.stem, yt_channel, unknown_folder)
+
+            target_dir = dest_dir / genre
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / archivo.name
+            if target.exists():
+                i = 1
+                while True:
+                    candidate = target_dir / f"{archivo.stem} ({i}){archivo.suffix}"
+                    if not candidate.exists():
+                        target = candidate
+                        break
+                    i += 1
+
+            shutil.move(str(archivo), str(target))
+            print_result(artist, extra, genre, target)
 
 
-def search_and_download(query: str, dest_dir: Path, email: str,
-                        extensions: list, unknown_folder: str, audio_format: str = "mp3"):
-    print(f"\n  Buscando...")
+def search_and_download(query: str, dest_dir: Path, email: str, extensions: list, unknown_folder: str, audio_format: str = "mp3"):
+    print("\n Buscando...")
     results = search_youtube(query)
-
     if not results:
-        print("  ⚠ No se encontraron resultados.")
+        print(" ⚠ No se encontraron resultados.")
         return
-
     show_results(query, results)
     chosen = pick_result(results)
     if not chosen:
         return
-
     url = chosen.get("url") or chosen.get("webpage_url") or ""
     if not url.startswith("http"):
         url = f"https://www.youtube.com/watch?v={url}"
-
-    download_and_organize(url, dest_dir, email, extensions, unknown_folder, audio_format)
+    download_and_organize(
+        url,
+        dest_dir,
+        email,
+        extensions,
+        unknown_folder,
+        audio_format,
+        yt_title=chosen.get("title", ""),
+        yt_channel=chosen.get("channel") or chosen.get("uploader", "")
+    )
