@@ -12,72 +12,33 @@
 
 ## ¿Qué hace?
 
-- 🔍 Buscas una canción por nombre — filtra automáticamente reacciones, covers y karaokes
-- ⭐ El mejor resultado aparece marcado; pulsa Enter para descargarlo o elige un número
-- 🎸 La canción se organiza sola en su carpeta de género (`Rock/`, `Pop/`, `Reggaeton/`...)
-- 🌐 Compatible con Linux, Windows, macOS y Termux
+- 🔍 **Búsqueda Inteligente:** Filtra automáticamente reacciones, covers y karaokes para darte la versión real.
+- 🌍 **Detección de Género Global:** Utiliza **MusicBrainz** e **iTunes API** para clasificar cada canción en su género exacto.
+- 🎸 **Organización Automática:** La música se organiza sola en su carpeta de género (`Rock/`, `Pop/`, `Reggaeton/`...)
+- 💾 **Gestión de Bibliotecas:** Organiza carpetas enteras o discos externos (USB) moviendo archivos a una estructura limpia.
+- 🚀 **Lanzador One-Click:** Configuración automática de entorno para usuarios que no quieren usar la terminal.
+- 🌐 **Multiplataforma:** Compatible con Linux, Windows, macOS y Termux.
 
 ---
 
-## Demo
+## Uso (Recomendado)
 
-```
-╔══════════════════════════════════════╗
-║       🎵  AfterTune                  ║
-╚══════════════════════════════════════╝
-
-  Carpeta: ~/Music
-
-  [1] Buscar y descargar canción
-  [2] Organizar carpeta existente
-  [3] Configuración
-  [4] Salir
-
-  Opción: 1
-  Nombre o URL: bad bunny neverita
-
-  Búsqueda: bad bunny neverita
-  ───────────────────────────────────────────────────────
-
-★ [1] Bad Bunny - Neverita  · Bad Bunny · 3:12 · 320M views
-  [2] Bad Bunny - Neverita (Video Oficial) · BadBunnyVevo · 3:14
-  [3] Bad Bunny - Neverita (Letra/Lyrics) · LetrasHD · 3:12
-
-  Opción: ↵
-
-  🎵 Título   Bad Bunny - Neverita
-  👤 Artista  Bad Bunny
-  🎸 Género   Reggaeton
-  📁 Destino  ~/Music/Reggaeton/Bad Bunny - Neverita.mp3
-```
-
----
-
-## Instalación
+Para usuarios de Linux/macOS, simplemente ejecuta el lanzador automático:
 
 ```bash
-git clone https://github.com/AfterEquis/music-organizer.git
-cd music-organizer
-pip install -r requirements.txt
+./aftertune.sh
 ```
 
-### Activar entorno virtual (opcional pero recomendado)
+Este script se encargará de todo: crear el entorno virtual, instalar las dependencias y lanzar la aplicación.
 
-| Sistema | Comando |
-|---|---|
-| Linux / macOS / Termux (bash/zsh) | `source .venv/bin/activate` |
-| Linux / macOS (fish) | `source .venv/bin/activate.fish` |
-| Windows | `.venv\Scripts\activate` |
+### Uso Manual
 
----
-
-## Uso
+Si prefieres hacerlo a mano:
 
 ```bash
+source .venv/bin/activate
 python main.py
 ```
-
-En la primera ejecución te pedirá tu carpeta de música y un email para MusicBrainz (necesario para la búsqueda de géneros).
 
 ---
 
@@ -93,13 +54,14 @@ Búsqueda YouTube (yt-dlp)
 Descarga en temp (webm → mp3/flac/m4a)
     │
     ▼
-Búsqueda de género
+Búsqueda de género (Inteligencia en Red)
     │  1. Tags ID3 del archivo
-    │  2. MusicBrainz API
-    │  3. Last.fm API (opcional)
-    │  4. Unknown/
+    │  2. MusicBrainz API (Álbum -> Artista)
+    │  3. iTunes Search API (Fallback de alta velocidad)
+    │  4. Reglas de palabras clave (Local)
+    │  5. Unknown/
     ▼
-Mover a ~/Music/[Género]/canción.mp3
+Mover a Destino/[Género]/canción.mp3
 ```
 
 ---

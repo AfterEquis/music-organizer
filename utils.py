@@ -16,14 +16,26 @@ def safe_name(name: str) -> str:
 
 def clean_stem(stem: str) -> str:
     s = stem.replace('_', ' ')
+    # Eliminar patrones de ruido
     for p in NOISE_PATTERNS:
         s = re.sub(p, ' ', s, flags=re.IGNORECASE)
+    # Limpiar brackets y paréntesis sobrantes
+    s = re.sub(r'[\(\[].*?[\)\]]', '', s)
     return re.sub(r'\s+', ' ', s).strip(' -')
 
 def parse_filename(stem: str):
-    """Devuelve (artista, título) parseando el nombre del archivo."""
+    """
+    Devuelve (artista, título) parseando el nombre del archivo.
+    Intenta detectar separadores comunes y colaboraciones.
+    """
     s = clean_stem(stem)
-    parts = re.split(r'\s*-\s+', s, maxsplit=1)
+    # Separadores comunes entre Artista - Título
+    parts = re.split(r'\s*[\-–—]\s*', s, maxsplit=1)
+    
     if len(parts) == 2:
-        return parts[0].strip(), parts[1].strip()
+        artist, title = parts[0].strip(), parts[1].strip()
+        # Si el artista tiene "x" o "&", nos quedamos con el principal para el mapeo
+        main_artist = re.split(r'\s+(?:x|&|ft\.?|feat\.?)\s+', artist, flags=re.IGNORECASE)[0]
+        return main_artist.strip(), title
+    
     return None, s.strip()

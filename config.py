@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import sys
+import subprocess
 from pathlib import Path
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
@@ -29,6 +30,14 @@ DEFAULTS = {
     "email":          "",
     "extensions":     [".mp3", ".flac", ".ogg", ".m4a", ".wav"],
     "unknown_folder": "Unknown",
+    "rules": {
+        "bachata": "Bachata",
+        "salsa": "Salsa",
+        "techno": "Techno",
+        "phonk": "Phonk",
+        "lofi": "Lofi",
+        "remerix": "Remix"
+    }
 }
 
 

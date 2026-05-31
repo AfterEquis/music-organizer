@@ -5,7 +5,7 @@ from pathlib import Path
 import requests
 from mutagen import File
 
-from utils import safe_name, parse_filename
+from utils import safe_name, parse_filename, clean_stem
 
 
 def genre_from_tags(path: Path) -> str | None:
@@ -20,7 +20,7 @@ def genre_from_tags(path: Path) -> str | None:
 
 
 def genre_from_musicbrainz(path: Path, email: str) -> str | None:
-    """Busca el género en MusicBrainz usando tags o nombre del archivo."""
+    """Busca el género en MusicBrainz de forma inteligente."""
     headers = {"User-Agent": f"MusicOrganizer/1.0 ({email or 'user@example.com'})"}
     title, artist = None, None
 
@@ -35,43 +35,62 @@ def genre_from_musicbrainz(path: Path, email: str) -> str | None:
     if not title:
         artist, title = parse_filename(path.stem)
 
-    query = f'recording:"{title}"'
-    if artist:
-        query += f' AND artist:"{artist}"'
+    # Lista de consultas de mayor a menor precisión
+    queries = []
+    if artist and title:
+        queries.append(f'recording:"{title}" AND artist:"{artist}"')
+    if title:
+        queries.append(f'recording:"{title}"')
+    # Fallback: búsqueda difusa con el nombre del archivo limpio
+    queries.append(clean_stem(path.stem))
 
-    try:
-        r = requests.get(
-            "https://musicbrainz.org/ws/2/recording",
-            params={"query": query, "fmt": "json", "limit": 1},
-            headers=headers, timeout=10,
-        )
-        r.raise_for_status()
-        recordings = r.json().get("recordings", [])
-        if not recordings:
-            return None
+    for query in queries:
+        try:
+            r = requests.get(
+                "https://musicbrainz.org/ws/2/recording",
+                params={"query": query, "fmt": "json", "limit": 1},
+                headers=headers, timeout=10,
+            )
+            r.raise_for_status()
+            recordings = r.json().get("recordings", [])
+            if not recordings:
+                continue
 
-        releases = recordings[0].get("releases", [])
-        if not releases:
-            return None
+            # Intentar obtener tags del release-group
+            releases = recordings[0].get("releases", [])
+            rg_id = None
+            if releases:
+                rg_id = releases[0].get("release-group", {}).get("id")
+            
+            # Si no hay release-group, mirar tags del artista
+            artist_id = recordings[0].get("artist-credit", [{}])[0].get("artist", {}).get("id")
 
-        rg_id = releases[0].get("release-group", {}).get("id")
-        if not rg_id:
-            return None
+            genre = None
+            # 1. Intentar por Release Group (más preciso para el álbum/canción)
+            if rg_id:
+                time.sleep(1)
+                res = requests.get(f"https://musicbrainz.org/ws/2/release-group/{rg_id}",
+                                 params={"inc": "tags", "fmt": "json"}, headers=headers, timeout=10)
+                tags = res.json().get("tags", [])
+                if tags:
+                    genre = max(tags, key=lambda t: t.get("count", 0))["name"].title()
 
-        time.sleep(1)
-        rg = requests.get(
-            f"https://musicbrainz.org/ws/2/release-group/{rg_id}",
-            params={"inc": "tags", "fmt": "json"},
-            headers=headers, timeout=10,
-        )
-        rg.raise_for_status()
-        tags = rg.json().get("tags", [])
-        if tags:
-            best = max(tags, key=lambda t: t.get("count", 0))
-            return safe_name(best["name"].title())
+            # 2. Fallback al Artista (si el álbum no tiene tags)
+            if not genre and artist_id:
+                time.sleep(1)
+                res = requests.get(f"https://musicbrainz.org/ws/2/artist/{artist_id}",
+                                 params={"inc": "tags", "fmt": "json"}, headers=headers, timeout=10)
+                tags = res.json().get("tags", [])
+                if tags:
+                    genre = max(tags, key=lambda t: t.get("count", 0))["name"].title()
 
-    except Exception as e:
-        print(f"  ⚠ MusicBrainz: {e}")
+            if genre:
+                return safe_name(genre)
+
+        except Exception as e:
+            print(f"  ⚠ MusicBrainz ({query[:20]}...): {e}")
+        
+        time.sleep(1) # Respetar límites de la API
 
     return None
 
@@ -94,26 +113,72 @@ def move_file(file: Path, genre: str, dest_dir: Path):
     return target
 
 
-def organize_file(path: Path, dest_dir: Path, email: str, unknown_folder: str = "Unknown") -> str:
+def genre_from_rules(path: Path, cfg: dict) -> str | None:
+    """Intenta determinar el género basándose en palabras clave en el título/nombre."""
+    t = path.stem.lower()
+
+    # Reglas por palabras clave en el título/nombre
+    if cfg.get("rules"):
+        for kw, genre in cfg["rules"].items():
+            if kw.lower() in t:
+                return genre
+
+    return None
+
+
+def genre_from_itunes(path: Path) -> str | None:
+    """Busca el género en la API de iTunes como fallback."""
+    artist, title = parse_filename(path.stem)
+    term = f"{artist} {title}" if artist else title
+    try:
+        r = requests.get("https://itunes.apple.com/search", 
+                         params={"term": term, "media": "music", "limit": 1},
+                         timeout=10)
+        if r.status_code == 200:
+            results = r.json().get("results", [])
+            if results:
+                return safe_name(results[0].get("primaryGenreName", "").title())
+    except Exception:
+        pass
+    return None
+
+
+def organize_file(path: Path, dest_dir: Path, cfg: dict) -> str:
     """Obtiene el género y mueve el archivo. Devuelve el género asignado."""
+    unknown_folder = cfg.get("unknown_folder", "Unknown")
+    
+    # Prioridad 1: Tags existentes
     genre = genre_from_tags(path)
     if genre:
         print(f"  → (tag) {genre}")
     else:
-        genre = genre_from_musicbrainz(path, email)
+        # Prioridad 2: Reglas locales (Mappings/Rules)
+        genre = genre_from_rules(path, cfg)
         if genre:
-            print(f"  → (MusicBrainz) {genre}")
-            time.sleep(1)
+            print(f"  → (regla local) {genre}")
         else:
-            genre = unknown_folder
-            print(f"  → {unknown_folder}")
+            # Prioridad 3: MusicBrainz
+            genre = genre_from_musicbrainz(path, cfg.get("email", ""))
+            if genre:
+                print(f"  → (MusicBrainz) {genre}")
+            else:
+                # Prioridad 4: iTunes (Fallback ante fallos de SSL/API)
+                genre = genre_from_itunes(path)
+                if genre:
+                    print(f"  → (iTunes) {genre}")
+                else:
+                    genre = unknown_folder
+                    print(f"  → {unknown_folder}")
 
     move_file(path, genre, dest_dir)
     return genre
 
 
-def organize_folder(src: Path, dest: Path, email: str, extensions: list, unknown_folder: str):
-    """Organiza todos los archivos de una carpeta."""
+def organize_folder(src: Path, dest: Path, cfg: dict):
+    """Organiza todos los archivos de una carpeta con reporte final."""
+    extensions = cfg.get("extensions", [".mp3", ".flac"])
+    unknown_folder = cfg.get("unknown_folder", "Unknown")
+    
     files = [f for f in src.rglob("*") if f.suffix.lower() in extensions and f.is_file()]
     total = len(files)
 
@@ -121,13 +186,20 @@ def organize_folder(src: Path, dest: Path, email: str, extensions: list, unknown
         print("No se encontraron archivos de audio.")
         return
 
-    print(f"\n{total} archivos encontrados.\n")
+    stats = {}
+    print(f"\n🚀 Procesando {total} archivos de: {src}\n")
+    
     for i, file in enumerate(files, 1):
         print(f"[{i}/{total}] {file.name}")
-        organize_file(file, dest, email, unknown_folder)
+        genre = organize_file(file, dest, cfg)
+        stats[genre] = stats.get(genre, 0) + 1
 
-    print("\n─── Resultado ───")
-    for d in sorted(dest.iterdir()):
-        if d.is_dir():
-            n = len(list(d.iterdir()))
-            print(f"  {d.name}/  ({n} archivo{'s' if n > 1 else ''})")
+    print("\n" + "═"*30)
+    print("      REPORTE DE ORGANIZACIÓN")
+    print("═"*30)
+    for genre in sorted(stats.keys()):
+        count = stats[genre]
+        color = "\033[93m" if genre == unknown_folder else "\033[92m"
+        print(f"  {color}{genre:15}{count:>3} archivo{'s' if count > 1 else ''}\033[0m")
+    print("═"*30)
+    print(f"  Total: {total} archivos procesados.\n")

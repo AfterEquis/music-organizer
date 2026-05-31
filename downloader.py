@@ -310,7 +310,9 @@ def _ask_unknown_genre(track_title: str, yt_channel: str, unknown_folder: str) -
     return safe_name(raw)
 
 
-def download_and_organize(url: str, dest_dir: Path, email: str, extensions: list, unknown_folder: str, audio_format: str = "mp3", yt_title: str = "", yt_channel: str = ""):
+from organizer import genre_from_rules, genre_from_tags, move_file, genre_from_musicbrainz, genre_from_itunes
+
+def download_and_organize(url: str, dest_dir: Path, cfg: dict, audio_format: str = "mp3", yt_title: str = "", yt_channel: str = "", auto_mode: bool = False):
     if not yt_title:
         try:
             with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
@@ -321,6 +323,7 @@ def download_and_organize(url: str, dest_dir: Path, email: str, extensions: list
             pass
 
     artist, title, extra = _parse_yt_title(yt_title)
+    unknown_folder = cfg.get("unknown_folder", "Unknown")
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         opts = {
@@ -330,9 +333,7 @@ def download_and_organize(url: str, dest_dir: Path, email: str, extensions: list
                 {"key": "FFmpegMetadata"},
                 {"key": "FFmpegExtractAudio", "preferredcodec": audio_format, "preferredquality": "192"},
             ],
-            "quiet": True,
-            "no_warnings": True,
-            "noprogress": True,
+            "quiet": True, "no_warnings": True, "noprogress": True,
             "progress_hooks": [make_progress_hook(yt_title, audio_format)],
         }
 
@@ -343,33 +344,38 @@ def download_and_organize(url: str, dest_dir: Path, email: str, extensions: list
             print(f"\n ⚠ Error de descarga: {e}")
             return
 
-        archivos = [f for f in Path(tmp_dir).iterdir() if f.suffix.lower() in extensions]
+        archivos = [f for f in Path(tmp_dir).iterdir() if f.suffix.lower() in cfg.get("extensions", [])]
         if not archivos:
-            print("\n ⚠ No se encontró ningún archivo de audio tras la descarga.")
+            print("\n ⚠ No se encontró ningún archivo de audio.")
             return
 
         for archivo in archivos:
-            genre = get_genre(yt_title, yt_channel, email) or unknown_folder
-            if genre == unknown_folder:
-                genre = _ask_unknown_genre(yt_title or archivo.stem, yt_channel, unknown_folder)
+            # 1. Reglas Locales
+            genre = genre_from_rules(archivo, cfg)
+            if genre:
+                print(f"  → (regla local) {genre}")
+            else:
+                # 2. MusicBrainz (Internet A)
+                genre = genre_from_musicbrainz(archivo, cfg.get("email", ""))
+                if genre:
+                    print(f"  → (MusicBrainz) {genre}")
+                else:
+                    # 3. iTunes (Internet B - Fallback)
+                    genre = genre_from_itunes(archivo)
+                    if genre:
+                        print(f"  → (iTunes) {genre}")
+                    else:
+                        # 4. Sugerencia o Unknown
+                        if auto_mode:
+                            genre = _suggest_genre(yt_title, yt_channel)
+                        else:
+                            genre = _ask_unknown_genre(yt_title or archivo.stem, yt_channel, unknown_folder)
 
-            target_dir = dest_dir / genre
-            target_dir.mkdir(parents=True, exist_ok=True)
-            target = target_dir / archivo.name
-            if target.exists():
-                i = 1
-                while True:
-                    candidate = target_dir / f"{archivo.stem} ({i}){archivo.suffix}"
-                    if not candidate.exists():
-                        target = candidate
-                        break
-                    i += 1
-
-            shutil.move(str(archivo), str(target))
+            target = move_file(archivo, genre, dest_dir)
             print_result(artist, extra, genre, target)
 
 
-def search_and_download(query: str, dest_dir: Path, email: str, extensions: list, unknown_folder: str, audio_format: str = "mp3"):
+def search_and_download(query: str, dest_dir: Path, cfg: dict, audio_format: str = "mp3", auto_mode: bool = False):
     print("\n Buscando...")
     results = search_youtube(query)
     if not results:
@@ -383,12 +389,8 @@ def search_and_download(query: str, dest_dir: Path, email: str, extensions: list
     if not url.startswith("http"):
         url = f"https://www.youtube.com/watch?v={url}"
     download_and_organize(
-        url,
-        dest_dir,
-        email,
-        extensions,
-        unknown_folder,
-        audio_format,
+        url, dest_dir, cfg, audio_format,
         yt_title=chosen.get("title", ""),
-        yt_channel=chosen.get("channel") or chosen.get("uploader", "")
+        yt_channel=chosen.get("channel") or chosen.get("uploader", ""),
+        auto_mode=auto_mode
     )

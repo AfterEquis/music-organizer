@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
-import os
 import sys
+
+# Verificar versión de Python antes de cualquier import
+if sys.version_info < (3, 10):
+    print(f"\n  ⚠ Python 3.10+ requerido. Tienes {sys.version_info.major}.{sys.version_info.minor}")
+    print("  Actualiza Python y vuelve a intentarlo.\n")
+    sys.exit(1)
+
+import os
 import argparse
 from pathlib import Path
 
@@ -18,7 +25,7 @@ def detect_usb() -> list:
         storage = Path.home() / "storage"
         if storage.exists():
             for d in sorted(storage.iterdir()):
-                if d.name.startswith("external") and d.is_dir():
+                if d.name.startswith("external") and d.name != "external-0" and d.is_dir():
                     drives.append(d)
 
     elif sys.platform == "win32":
@@ -104,9 +111,7 @@ def menu_download(cfg: dict, auto_mode: bool = False, dest_usb=None):
         download_and_organize(
             url=entrada,
             dest_dir=dest,
-            email=cfg["email"],
-            extensions=cfg["extensions"],
-            unknown_folder=cfg["unknown_folder"],
+            cfg=cfg,
             audio_format=fmt,
             auto_mode=auto_mode,
         )
@@ -114,31 +119,48 @@ def menu_download(cfg: dict, auto_mode: bool = False, dest_usb=None):
         search_and_download(
             query=entrada,
             dest_dir=dest,
-            email=cfg["email"],
-            extensions=cfg["extensions"],
-            unknown_folder=cfg["unknown_folder"],
+            cfg=cfg,
             audio_format=fmt,
             auto_mode=auto_mode,
         )
     input("\n  Pulsa Enter para continuar...")
 
 
-def menu_organize(cfg: dict, auto_mode: bool = False):
-    src_input = input(f"  Carpeta a organizar [{cfg['music_dir']}]: ").strip()
-    src = Path(src_input) if src_input else Path(cfg["music_dir"])
+def menu_organize(cfg: dict, auto_mode: bool = False, dest_usb=None):
+    print("\n  --- Organización de Carpeta ---")
+    if dest_usb:
+        print(f"  [M] Carpeta de música  ({cfg['music_dir']})")
+        print(f"  [U] USB detectado      ({dest_usb})")
+        print(f"  [O] Otra carpeta personalizada")
+        print()
+        opcion = input("  ¿Qué carpeta quieres organizar? [M/U/O]: ").strip().upper()
+        if opcion == "U":
+            src = Path(dest_usb)
+        elif opcion == "O":
+            src_input = input("  Introduce la ruta completa: ").strip()
+            src = Path(src_input) if src_input else Path(cfg["music_dir"])
+        else:
+            src = Path(cfg["music_dir"])
+    else:
+        src_input = input(f"  Carpeta a organizar [{cfg['music_dir']}]: ").strip()
+        src = Path(src_input) if src_input else Path(cfg["music_dir"])
 
     if not src.exists():
         print(f"  ⚠ La carpeta no existe: {src}")
         input("  Pulsa Enter para continuar...")
         return
 
+    # Preguntar por el destino para ser flexible
+    print(f"\n  ¿Destino de la organización?")
+    print(f"  [1] En la misma carpeta ({src})")
+    print(f"  [2] En la carpeta base de música ({cfg['music_dir']})")
+    dest_opt = input("  Opción [1]: ").strip()
+    dest = Path(cfg["music_dir"]) if dest_opt == "2" else src
+
     organize_folder(
         src=src,
-        dest=src,
-        email=cfg["email"],
-        extensions=cfg["extensions"],
-        unknown_folder=cfg["unknown_folder"],
-        auto_mode=auto_mode,
+        dest=dest,
+        cfg=cfg
     )
     input("\n  Pulsa Enter para continuar...")
 
@@ -192,7 +214,7 @@ def main():
         if choice == "1":
             menu_download(cfg, auto_mode, dest_usb)
         elif choice == "2":
-            menu_organize(cfg, auto_mode)
+            menu_organize(cfg, auto_mode, dest_usb)
         elif choice == "3":
             cfg = menu_config(cfg)
         elif choice == "U" and usb:
