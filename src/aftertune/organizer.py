@@ -142,17 +142,37 @@ def genre_from_itunes(path: Path) -> str | None:
         pass
     return None
 
+def simplify_genre(genre: str, genre_map: dict) -> str:
+    """Simplifica un género específico a una categoría genérica usando el mapeo."""
+    if not genre or not genre_map:
+        return genre
+
+    # Normalizar para búsqueda
+    g_search = genre.strip()
+
+    # 1. Búsqueda exacta
+    if g_search in genre_map:
+        return genre_map[g_search]
+
+    # 2. Búsqueda por subcadena (ej: "Melodic Death Metal" -> "Metal")
+    for specific, generic in genre_map.items():
+        if specific.lower() in g_search.lower():
+            return generic
+
+    return genre
+
 
 def organize_file(path: Path, dest_dir: Path, cfg: dict) -> str:
     """Obtiene el género y mueve el archivo. Devuelve el género asignado."""
     unknown_folder = cfg.get("unknown_folder", "Unknown")
-    
+    genre_map = cfg.get("genre_map", {})
+
     # Prioridad 1: Tags existentes
     genre = genre_from_tags(path)
     if genre:
         print(f"  → (tag) {genre}")
     else:
-        # Prioridad 2: Reglas locales (Mappings/Rules)
+        # Prioridad 2: Reglas locales (Rules)
         genre = genre_from_rules(path, cfg)
         if genre:
             print(f"  → (regla local) {genre}")
@@ -162,7 +182,7 @@ def organize_file(path: Path, dest_dir: Path, cfg: dict) -> str:
             if genre:
                 print(f"  → (MusicBrainz) {genre}")
             else:
-                # Prioridad 4: iTunes (Fallback ante fallos de SSL/API)
+                # Prioridad 4: iTunes
                 genre = genre_from_itunes(path)
                 if genre:
                     print(f"  → (iTunes) {genre}")
@@ -170,8 +190,16 @@ def organize_file(path: Path, dest_dir: Path, cfg: dict) -> str:
                     genre = unknown_folder
                     print(f"  → {unknown_folder}")
 
+    # Aplicar simplificación de género si no es Unknown
+    if genre != unknown_folder:
+        old_genre = genre
+        genre = simplify_genre(genre, genre_map)
+        if genre != old_genre:
+            print(f"  ⚡ Simplificado: {old_genre} → {genre}")
+
     move_file(path, genre, dest_dir)
     return genre
+
 
 
 def organize_folder(src: Path, dest: Path, cfg: dict):
