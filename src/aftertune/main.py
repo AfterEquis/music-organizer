@@ -11,9 +11,9 @@ import os
 import argparse
 from pathlib import Path
 
-import config as cfg_module
-from downloader import search_and_download, download_and_organize
-from organizer import organize_folder
+from . import config as cfg_module
+from .downloader import search_and_download, download_and_organize
+from .organizer import organize_folder
 
 
 def detect_usb() -> list:
@@ -46,17 +46,42 @@ def detect_usb() -> list:
                     drives.append(d)
 
     else:  # Linux
-        user = os.environ.get("USER", "")
-        for base in [Path("/media") / user, Path("/media"), Path("/run/media") / user]:
-            if base.exists():
-                try:
+        import subprocess
+        import json
+        try:
+            # Usamos lsblk para obtener información detallada de los montajes
+            # RM=1 significa extraíble, TRAN=usb indica conexión USB
+            cmd = ["lsblk", "-J", "-o", "MOUNTPOINT,RM,TRAN"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                for device in data.get("blockdevices", []):
+                    # lsblk puede devolver una lista de particiones en 'children'
+                    devices_to_check = [device]
+                    if "children" in device:
+                        devices_to_check.extend(device["children"])
+                    
+                    for dev in devices_to_check:
+                        mount = dev.get("mountpoint")
+                        if mount and Path(mount).is_dir():
+                            # Criterio: Es extraíble O es transporte USB
+                            is_removable = dev.get("rm") == "1" or dev.get("rm") is True
+                            is_usb = dev.get("tran") == "usb"
+                            
+                            # Evitamos discos internos SATA/NVMe que se montan en /run/media
+                            if is_removable or is_usb:
+                                drives.append(Path(mount))
+        except Exception:
+            # Fallback al método básico si lsblk falla
+            user = os.environ.get("USER", "")
+            for base in [Path("/media") / user, Path("/run/media") / user]:
+                if base.exists():
                     for d in base.iterdir():
                         if d.is_dir() and d.is_mount():
                             drives.append(d)
-                except PermissionError:
-                    pass
 
-    return drives
+    # Eliminar duplicados manteniendo el orden
+    return list(dict.fromkeys(drives))
 
 
 

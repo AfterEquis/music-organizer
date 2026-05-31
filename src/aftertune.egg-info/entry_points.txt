@@ -1,0 +1,2 @@
+[console_scripts]
+aftertune = aftertune.main:main

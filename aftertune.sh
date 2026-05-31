@@ -25,12 +25,14 @@ if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 
-# 3. Activar e instalar dependencias silenciosamente
+# 3. Sincronizar cambios del código fuente
 source .venv/bin/activate
-echo -e "  Verificando componentes..."
-pip install -r requirements.txt --quiet
+echo -e "  Sincronizando cambios de AfterTune..."
+# Usamos pip install -e para que cualquier cambio en los .py se vea reflejado sin reinstalar,
+# pero lo ejecutamos para asegurar que las dependencias estén al día.
+pip install -e . --quiet --no-warn-script-location
 
 # 4. Lanzar la aplicación
-echo -e "  ${GREEN}¡Todo listo! Abriendo AfterTune...${NC}\n"
-sleep 1
-python3 main.py "$@"
+echo -e "  ${GREEN}✔ Sistema listo.${NC}\n"
+sleep 0.5
+aftertune "$@"

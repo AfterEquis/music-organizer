@@ -5,7 +5,7 @@ from pathlib import Path
 import requests
 from mutagen import File
 
-from utils import safe_name, parse_filename, clean_stem
+from .utils import safe_name, parse_filename, clean_stem
 
 
 def genre_from_tags(path: Path) -> str | None:

@@ -9,7 +9,7 @@ from pathlib import Path
 import yt_dlp
 from mutagen import File
 
-from utils import safe_name, parse_filename
+from .utils import safe_name, parse_filename
 
 YELLOW = "\033[93m"
 GREEN = "\033[92m"
@@ -310,7 +310,7 @@ def _ask_unknown_genre(track_title: str, yt_channel: str, unknown_folder: str) -
     return safe_name(raw)
 
 
-from organizer import genre_from_rules, genre_from_tags, move_file, genre_from_musicbrainz, genre_from_itunes
+from .organizer import genre_from_rules, genre_from_tags, move_file, genre_from_musicbrainz, genre_from_itunes
 
 def download_and_organize(url: str, dest_dir: Path, cfg: dict, audio_format: str = "mp3", yt_title: str = "", yt_channel: str = "", auto_mode: bool = False):
     if not yt_title:
