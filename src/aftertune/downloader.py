@@ -24,8 +24,9 @@ PENALTY_WORDS = [
     "gameplay", "compilation", "compilacion", "mix",
     "extended", "slowed", "reverb", "nightcore",
     "hora", "hours", "completo",
+    "videoclip", "video oficial", "official video", "music video", "clip"
 ]
-BONUS_WORDS = ["official", "oficial", "audio", "vevo"]
+BONUS_WORDS = ["official", "oficial", "audio", "vevo", "lyrics", "letra", "topic", "visualizer"]
 GENRE_RULES = [
     ("bachata", "Bachata"),
     ("salsa", "Salsa"),
@@ -106,7 +107,7 @@ def make_progress_hook(title: str, audio_format: str):
             if not state["header_printed"]:
                 t = title if len(title) <= 44 else title[:41] + "..."
                 size_str = _fmt_bytes(filesize)
-                info = f"{size_str} · webm → {audio_format} · 192kbps"
+                info = f"{size_str} · webm → {audio_format} · 320kbps"
                 print()
                 print(f" {CYAN}┌{'─'*BOX_W}┐{RESET}")
                 print(f" {CYAN}│{RESET} {BOLD}↓ {t}{RESET}{' '*(BOX_W-4-len(t))}{CYAN}│{RESET}")
@@ -150,27 +151,58 @@ def _score(entry: dict, query: str = "") -> float:
     dur = entry.get("duration") or 0
     views = entry.get("view_count") or 0
     score = 0.0
+    
     if query:
         q_words = _query_words(query)
         title_words = set(re.findall(r'\w+', title))
         if q_words:
             overlap = len(q_words & title_words) / len(q_words)
-            score += overlap * 80
-            score -= len(q_words - title_words) * 15
+            score += overlap * 100 # Aumentamos peso de coincidencia
+            score -= len(q_words - title_words) * 20
+        
+        # Bonus si el canal coincide con el artista buscado
+        channel_words = set(re.findall(r'\w+', channel))
+        if q_words & channel_words:
+            score += 50
+
+    # Penalizaciones fuertes
     for w in PENALTY_WORDS:
         if w in title:
-            score -= 30
-    for w in BONUS_WORDS:
-        if w in title or w in channel:
-            score += 10
+            score -= 60
+            
+    # Penalizar específicamente Lyrics/Letra si buscamos calidad oficial
+    if "lyrics" in title or "letra" in title:
+        score -= 40
+            
+    # Bonificaciones estratégicas
+    if "visualizer" in title:
+        score += 80
+    
+    if "official audio" in title or "audio oficial" in title:
+        score += 70
+    elif "audio" in title:
+        score += 30
+        
+    if "vevo" in channel or "oficial" in channel or "official" in channel:
+        score += 40
+            
+    # Prioridad máxima: Canales Topic (Distribución oficial de YouTube Music)
+    if channel.endswith(" - topic"):
+        score += 100
+        
+    # Duración ideal de una canción
     if 90 <= dur <= 360:
-        score += 20
+        score += 30
     elif dur > 600:
-        score -= 50
-    elif dur > 360:
-        score -= 10
+        score -= 100
+    elif dur > 420:
+        score -= 40
+        
     if views > 0:
-        score += math.log10(views) * 1.5
+        # El peso de las visitas es dominante (x10.0) para que la versión oficial popular 
+        # (millones de views) siempre aplaste a resubidos o versiones secundarias (miles de views).
+        score += math.log10(views) * 10.0
+        
     return score
 
 
@@ -331,7 +363,7 @@ def download_and_organize(url: str, dest_dir: Path, cfg: dict, audio_format: str
             "outtmpl": str(Path(tmp_dir) / "%(title)s.%(ext)s"),
             "postprocessors": [
                 {"key": "FFmpegMetadata"},
-                {"key": "FFmpegExtractAudio", "preferredcodec": audio_format, "preferredquality": "192"},
+                {"key": "FFmpegExtractAudio", "preferredcodec": audio_format, "preferredquality": "320"},
             ],
             "quiet": True, "no_warnings": True, "noprogress": True,
             "progress_hooks": [make_progress_hook(yt_title, audio_format)],
@@ -370,6 +402,13 @@ def download_and_organize(url: str, dest_dir: Path, cfg: dict, audio_format: str
                             genre = _suggest_genre(yt_title, yt_channel)
                         else:
                             genre = _ask_unknown_genre(yt_title or archivo.stem, yt_channel, unknown_folder)
+
+            # --- NUEVA OPCIÓN: CORRECCIÓN MANUAL ---
+            if not auto_mode:
+                prompt = f"  🎸 Género detectado: {YELLOW}{genre}{RESET}. ¿Cambiar? (Enter para mantener): "
+                new_genre = input(prompt).strip()
+                if new_genre:
+                    genre = safe_name(new_genre.title())
 
             target = move_file(archivo, genre, dest_dir)
             print_result(artist, extra, genre, target)

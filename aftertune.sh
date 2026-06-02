@@ -13,10 +13,26 @@ echo -e "${CYAN}╔════════════════════�
 echo -e "${CYAN}║       🎵  Iniciando AfterTune        ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════╝${NC}"
 
-# 1. Comprobar Python
+# 1. Comprobar e instalar dependencias del sistema
+install_pkg() {
+    if command -v pkg &> /dev/null; then # Termux
+        pkg install -y "$1"
+    elif command -v apt &> /dev/null; then # Debian/Ubuntu
+        sudo apt update && sudo apt install -y "$1"
+    elif command -v pacman &> /dev/null; then # Arch Linux
+        sudo pacman -Sy --noconfirm "$1"
+    fi
+}
+
 if ! command -v python3 &> /dev/null; then
-    echo -e "${YELLOW}⚠ Python no encontrado. Por favor, instálalo primero.${NC}"
-    exit 1
+    echo -e "${YELLOW}⚠ Python no encontrado. Instalando...${NC}"
+    install_pkg python
+fi
+
+if ! command -v ffmpeg &> /dev/null; then
+    echo -e "${YELLOW}⚠ FFmpeg no encontrado (necesario para 320kbps). Instalando...${NC}"
+    # En algunos sistemas el paquete se llama ffmpeg, en otros python-ffmpeg no es lo que queremos
+    install_pkg ffmpeg
 fi
 
 # 2. Gestionar Entorno Virtual
