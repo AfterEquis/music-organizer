@@ -231,3 +231,14 @@ def organize_folder(src: Path, dest: Path, cfg: dict):
         print(f"  {color}{genre:15}{count:>3} archivo{'s' if count > 1 else ''}\033[0m")
     print("═"*30)
     print(f"  Total: {total} archivos procesados.\n")
+
+    # Si es Termux, notificar al escáner de medios sobre la carpeta destino en segundo plano
+    from .config import IS_TERMUX
+    if IS_TERMUX:
+        try:
+            import subprocess
+            subprocess.Popen(["termux-media-scan", str(dest)],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        except Exception:
+            pass

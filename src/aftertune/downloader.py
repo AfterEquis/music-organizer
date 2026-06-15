@@ -482,6 +482,17 @@ def download_and_organize(url: str, dest_dir: Path, cfg: dict, audio_format: str
             target = move_file(archivo, genre, dest_dir)
             print_result(artist, extra, genre, target)
 
+            # Si es Termux, notificar al escáner de medios de Android en segundo plano
+            from .config import IS_TERMUX
+            if IS_TERMUX:
+                try:
+                    import subprocess
+                    subprocess.Popen(["termux-media-scan", str(target)],
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+
 
 def search_and_download(query: str, dest_dir: Path, cfg: dict, audio_format: str = "mp3", auto_mode: bool = False):
     print("\n Buscando...")
