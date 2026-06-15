@@ -19,9 +19,43 @@ def _default_music_dir() -> str:
         return str(Path.home() / "Music")
     if sys.platform == "win32":
         return str(Path.home() / "Music")
+    
+    # 1. Intentar variable de entorno XDG_MUSIC_DIR
     xdg = os.environ.get("XDG_MUSIC_DIR")
     if xdg:
         return xdg
+        
+    # 2. Intentar ejecutar xdg-user-dir (estándar en Linux)
+    try:
+        import subprocess
+        r = subprocess.run(["xdg-user-dir", "MUSIC"], capture_output=True, text=True, check=True)
+        path = r.stdout.strip()
+        if path and os.path.exists(path):
+            return path
+    except Exception:
+        pass
+
+    # 3. Intentar parsear ~/.config/user-dirs.dirs directamente
+    try:
+        user_dirs = Path.home() / ".config" / "user-dirs.dirs"
+        if user_dirs.exists():
+            with open(user_dirs, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("XDG_MUSIC_DIR="):
+                        val = line.split("=")[1].strip().strip('"')
+                        val = val.replace("$HOME", str(Path.home()))
+                        val = os.path.expandvars(val)
+                        if os.path.exists(val):
+                            return val
+    except Exception:
+        pass
+
+    # 4. Comprobar carpetas traducidas comunes si no se encontró lo anterior
+    for name in ["Music", "Música", "Musique", "Musik"]:
+        p = Path.home() / name
+        if p.exists():
+            return str(p)
+
     return str(Path.home() / "Music")
 
 

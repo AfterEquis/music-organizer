@@ -57,9 +57,17 @@ def detect_usb() -> list:
                 data = json.loads(result.stdout)
                 for device in data.get("blockdevices", []):
                     # lsblk puede devolver una lista de particiones en 'children'
+                    parent_rm = device.get("rm")
+                    parent_tran = device.get("tran")
                     devices_to_check = [device]
                     if "children" in device:
-                        devices_to_check.extend(device["children"])
+                        for child in device["children"]:
+                            # Heredar rm y tran del padre si el hijo no los define o son nulos
+                            if child.get("rm") is None:
+                                child["rm"] = parent_rm
+                            if child.get("tran") is None:
+                                child["tran"] = parent_tran
+                            devices_to_check.append(child)
                     
                     for dev in devices_to_check:
                         mount = dev.get("mountpoint")
@@ -68,7 +76,7 @@ def detect_usb() -> list:
                             is_removable = dev.get("rm") == "1" or dev.get("rm") is True
                             is_usb = dev.get("tran") == "usb"
                             
-                            # Evitamos discos internos SATA/NVMe que se montan en /run/media
+                            # Evitamos discos internos SATA/NVMe
                             if is_removable or is_usb:
                                 drives.append(Path(mount))
         except Exception:

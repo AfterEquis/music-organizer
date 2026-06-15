@@ -145,7 +145,7 @@ def _query_words(query: str) -> set:
     return {w for w in re.findall(r'\w+', query.lower()) if len(w) > 1 and w not in stopwords}
 
 
-def _score(entry: dict, query: str = "") -> float:
+def _score_v1(entry: dict, query: str = "") -> float:
     title = (entry.get("title") or "").lower()
     channel = (entry.get("channel") or "").lower()
     dur = entry.get("duration") or 0
@@ -201,6 +201,75 @@ def _score(entry: dict, query: str = "") -> float:
     if views > 0:
         # El peso de las visitas es dominante (x10.0) para que la versión oficial popular 
         # (millones de views) siempre aplaste a resubidos o versiones secundarias (miles de views).
+        score += math.log10(views) * 10.0
+        
+    return score
+
+
+def _score(entry: dict, query: str = "") -> float:
+    title = (entry.get("title") or "").lower()
+    channel = (entry.get("channel") or "").lower()
+    dur = entry.get("duration") or 0
+    views = entry.get("view_count") or 0
+    score = 0.0
+    
+    if query:
+        q_words = _query_words(query)
+        title_words = set(re.findall(r'\w+', title))
+        channel_words = set(re.findall(r'\w+', channel))
+        combined_words = title_words | channel_words
+        
+        if q_words:
+            # Coincidencia en el título (mantiene prioridad para títulos exactos)
+            overlap_title = len(q_words & title_words) / len(q_words)
+            score += overlap_title * 100
+            
+            # Penalización suave por palabras faltantes en el título
+            score -= len(q_words - title_words) * 20
+            
+            # Penalización severa por palabras clave de la búsqueda que NO aparecen
+            # ni en el título ni en el canal (ausencia total de la palabra clave)
+            missing_completely = q_words - combined_words
+            score -= len(missing_completely) * 120
+
+        # Bonus si el canal coincide con el artista buscado
+        if q_words & channel_words:
+            score += 50
+
+    # Penalizaciones fuertes
+    for w in PENALTY_WORDS:
+        if w in title:
+            score -= 60
+            
+    # Penalizar específicamente Lyrics/Letra si buscamos calidad oficial
+    if "lyrics" in title or "letra" in title:
+        score -= 40
+            
+    # Bonificaciones estratégicas
+    if "visualizer" in title:
+        score += 80
+    
+    if "official audio" in title or "audio oficial" in title:
+        score += 70
+    elif "audio" in title:
+        score += 30
+        
+    if "vevo" in channel or "oficial" in channel or "official" in channel:
+        score += 40
+            
+    # Prioridad máxima: Canales Topic (Distribución oficial de YouTube Music)
+    if channel.endswith(" - topic"):
+        score += 100
+        
+    # Duración ideal de una canción
+    if 90 <= dur <= 360:
+        score += 30
+    elif dur > 600:
+        score -= 100
+    elif dur > 420:
+        score -= 40
+        
+    if views > 0:
         score += math.log10(views) * 10.0
         
     return score

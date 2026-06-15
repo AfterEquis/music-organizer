@@ -29,6 +29,18 @@ if ! command -v python3 &> /dev/null; then
     install_pkg python
 fi
 
+# Instalar dependencias necesarias para el entorno virtual en Debian/Ubuntu
+if command -v apt &> /dev/null; then
+    if ! dpkg -l | grep -q "python3-venv"; then
+        echo -e "${YELLOW}⚠ python3-venv no encontrado (necesario para el entorno virtual). Instalando...${NC}"
+        install_pkg python3-venv
+    fi
+    if ! dpkg -l | grep -q "python3-pip"; then
+        echo -e "${YELLOW}⚠ python3-pip no encontrado. Instalando...${NC}"
+        install_pkg python3-pip
+    fi
+fi
+
 if ! command -v ffmpeg &> /dev/null; then
     echo -e "${YELLOW}⚠ FFmpeg no encontrado (necesario para 320kbps). Instalando...${NC}"
     # En algunos sistemas el paquete se llama ffmpeg, en otros python-ffmpeg no es lo que queremos
@@ -36,6 +48,11 @@ if ! command -v ffmpeg &> /dev/null; then
 fi
 
 # 2. Gestionar Entorno Virtual
+if [ -d ".venv" ] && [ ! -f ".venv/bin/activate" ]; then
+    echo -e "${YELLOW}⚠ El entorno virtual (.venv) está corrupto o incompleto. Recreándolo...${NC}"
+    rm -rf .venv
+fi
+
 if [ ! -d ".venv" ]; then
     echo -e "  Configurando el sistema por primera vez..."
     python3 -m venv .venv
